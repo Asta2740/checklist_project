@@ -1,0 +1,8 @@
+openpyxl
+numpy
+psutil
+opencv-python
+pythonnet
+screeninfo
+pyaudio
+tkinter

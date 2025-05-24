@@ -1,0 +1,169 @@
+
+import numpy as np
+import time
+import sys
+import asyncio
+import platform
+
+def get_current_memory_usage():
+    """Get current process memory usage in MB using psutil, if available."""
+    try:
+        import psutil
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        return mem_info.rss / (1024 * 1024)  # Resident Set Size in MB
+    except ImportError:
+        return None
+
+def get_available_memory():
+    """
+    Get total and available RAM, return max_mb as 90% of available.
+    Fallback to allocation-based estimation in Pyodide.
+    """
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        total_mb = mem.total / (1024 * 1024)
+        available_mb = mem.available / (1024 * 1024)
+        max_mb = int(available_mb * 0.9)  # 90% of available
+        print(f"Detecting usable memory: ({total_mb:.0f} MB theoretical max)")
+        print(f"System RAM: Total={total_mb:.2f} MB, Available={available_mb:.2f} MB")
+        return max_mb
+    except ImportError:
+        print("psutil unavailable (likely Pyodide), estimating available memory...")
+        max_mb = 1024  # Default cap for Pyodide
+        step_mb = 128  # Increased step size for faster allocation
+        num_elements = int((step_mb * 1024 * 1024) / 8)  # 8 bytes per float64
+        allocated = []
+        total_mb = 0
+
+        while total_mb < max_mb:
+            try:
+                array = np.empty(num_elements, dtype=np.float64)
+                allocated.append(array)
+                total_mb += step_mb
+            except MemoryError:
+                break
+            except Exception as e:
+                print(f"Estimation error: {e}")
+                break
+        
+        allocated.clear()
+        max_mb = int(total_mb * 0.9) if total_mb > 0 else 256  # 90% or minimum
+        print(f"Detecting usable memory: ({total_mb:.0f} MB theoretical max)")
+        print(f"Estimated available memory: {total_mb:.2f} MB")
+        return max_mb
+
+async def memtest64_like(step_mb=128, passes=2):
+    """
+    Memory tester inspired by MemTest64.
+    Tests 90% of available RAM with multiple patterns.
+    """
+    print("MemTest64-Like RAM Tester")
+    max_mb = get_available_memory()
+    print(f"Maximum memory to test: {max_mb} MB (90% of available)")
+    print(f"Allocation step size: {step_mb} MB")
+    print(f"Number of passes: {passes}\n")
+
+    num_elements_per_step = int((step_mb * 1024 * 1024) / 8)  # 8 bytes per float64
+    allocated_arrays = []
+    total_mb = 0
+    total_errors = 0
+    start_time = time.time()
+
+    # Test patterns inspired by MemTest64
+    patterns = [
+        ("All Zeros", lambda n: np.zeros(n, dtype=np.float64)),
+        ("All Ones", lambda n: np.ones(n, dtype=np.float64)),
+        ("Alternating", lambda n: np.array([1.0 if i % 2 == 0 else 0.0 for i in range(n)], dtype=np.float64)),
+        ("Random", lambda n: np.random.rand(n))
+    ]
+
+    # Allocate memory incrementally until max_mb or failure
+    print("Allocating memory...")
+    while total_mb < max_mb:
+        try:
+            array = np.empty(num_elements_per_step, dtype=np.float64)
+            array[:] = np.random.rand(num_elements_per_step)  # Fill to ensure allocation
+            allocated_arrays.append(array)
+            total_mb += step_mb
+            print(f"Allocated {total_mb} MB so far")
+            mem_usage = get_current_memory_usage()
+            if mem_usage is not None:
+                print(f"Current process memory usage: {mem_usage:.2f} MB")
+            await asyncio.sleep(0.5)  # Increased sleep to allow monitoring
+        except MemoryError:
+            print(f"MemoryError: Stopped allocation at {total_mb} MB")
+            break
+        except Exception as e:
+            print(f"Error during allocation: {e}")
+            break
+
+    if not allocated_arrays:
+        print("Error: No memory could be allocated")
+        return
+
+    print(f"\nTesting {total_mb} MB of memory")
+    print("Pausing for 5 seconds to verify memory usage...")
+    await asyncio.sleep(5)  # Pause to allow monitoring tools to catch up
+    mem_usage = get_current_memory_usage()
+    if mem_usage is not None:
+        print(f"Process memory usage after allocation: {mem_usage:.2f} MB")
+
+    # Run tests on all allocated arrays
+    for pass_num in range(1, passes + 1):
+        print(f"\nStarting Pass {pass_num}/{passes}")
+        pass_errors = 0
+
+        for pattern_name, pattern_func in patterns:
+            print(f"  Testing pattern: {pattern_name}")
+            test_start = time.time()
+
+            for array_idx, array in enumerate(allocated_arrays):
+                try:
+                    # Write pattern
+                    test_pattern = pattern_func(len(array))
+                    array[:] = test_pattern
+
+                    # Verify pattern
+                    errors = 0
+                    for i in range(len(array)):
+                        if array[i] != test_pattern[i]:
+                            errors += 1
+                            print(f"    Error in array {array_idx}, index {i}: expected {test_pattern[i]}, got {array[i]}")
+                    
+                    pass_errors += errors
+                    print(f"    Array {array_idx}: Errors: {errors}")
+                except Exception as e:
+                    print(f"    Error in array {array_idx}: {e}")
+                    pass_errors += 1
+
+            test_time = time.time() - test_start
+            print(f"  Pattern completed. Total errors: {pass_errors}")
+            print(f"  Time: {test_time:.2f} seconds")
+            await asyncio.sleep(0.1)  # Keep browser responsive
+
+        total_errors += pass_errors
+        print(f"Pass {pass_num} completed. Errors: {pass_errors}")
+
+    # Clean up
+    allocated_arrays.clear()
+    end_time = time.time()
+
+    # Summary
+    print("\nTest Summary")
+    print(f"Total memory tested: {total_mb} MB")
+    print(f"Total passes: {passes}")
+    print(f"Total errors: {total_errors}")
+    print(f"Total time: {end_time - start_time:.2f} seconds")
+    print(f"Estimated memory usage: {total_mb:.2f} MB")
+    print("Test completed.")
+
+async def main():
+    await memtest64_like(step_mb=128, passes=2)
+
+if platform.system() == "Emscripten":
+    asyncio.ensure_future(main())
+else:
+    if __name__ == "__main__":
+        asyncio.run(main())
