@@ -71,6 +71,18 @@ python ./generate_checklist.py
 
 This will initiate the various tests and provide feedback based on the results. and generate an excel sheet with the reported outcome
 
+##
+
+For portability convert the program into exe by 
+
+```
+python -m PyInstaller --onefile --icon=./support/checklist.ico `
+>>   --add-data "Support/OpenHardwareMonitorLib.dll;Support" `
+>>   --add-data "Support/Audio-test.wav;Support" `
+>>   --add-data "Support/smartctl.exe;Support" `
+>>   --add-data "Support/AquaKeyTest.exe;Support" `
+>>   generate_checklist.py
+```
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue for any enhancements or bug fixes.

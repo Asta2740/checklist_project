@@ -391,6 +391,9 @@ def main():
     # Network paths list
     network_paths = [
 ##        r"\\network\path\to\save\location1",
+        r"\\192.168.1.2\path\to\save\location2",
+        r"\\192.168.1.2\path\to\save\location3",
+        # Add more network paths as needed
     ]
 
     def try_save_to_network(base_path, filename, date_str, workbook):
