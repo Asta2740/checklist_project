@@ -6,3 +6,8 @@ pythonnet
 screeninfo
 pyaudio
 tkinter
+threading
+pyaudio
+wave
+pywin32
+bleak
